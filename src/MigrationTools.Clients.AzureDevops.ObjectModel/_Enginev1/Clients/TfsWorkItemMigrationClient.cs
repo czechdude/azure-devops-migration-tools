@@ -4,6 +4,8 @@ using System.Linq;
 using System.Text;
 using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.TeamFoundation;
+using Microsoft.TeamFoundation.Build.WebApi;
 using Microsoft.TeamFoundation.Client;
 using Microsoft.TeamFoundation.WorkItemTracking.Client;
 using MigrationTools._EngineV1.Configuration;
@@ -65,15 +67,33 @@ namespace MigrationTools._EngineV1.Clients
         public override WorkItemData FindReflectedWorkItem(WorkItemData workItemToReflect, bool cache)
 
         {
-            TfsReflectedWorkItemId ReflectedWorkItemId = new TfsReflectedWorkItemId(workItemToReflect);
-            var workItemToFind = workItemToReflect.ToWorkItem();
-            WorkItem found = GetFromCache(ReflectedWorkItemId)?.ToWorkItem();
-            if (found == null) { found = FindReflectedWorkItemByReflectedWorkItemId(ReflectedWorkItemId)?.ToWorkItem(); }
-            if (found != null && cache)
-            {
-                AddToCache(found.AsWorkItemData());// TODO MEMORY LEAK
+            return FindReflectedWorkItemWrap(workItemToReflect, cache);
+        }
+
+        private WorkItemData FindReflectedWorkItemWrap(WorkItemData workItemToReflect, bool cache, int retries = 5)
+        {
+            try { 
+                TfsReflectedWorkItemId ReflectedWorkItemId = new TfsReflectedWorkItemId(workItemToReflect);
+                var workItemToFind = workItemToReflect.ToWorkItem();
+                WorkItem found = GetFromCache(ReflectedWorkItemId)?.ToWorkItem();
+                if (found == null)
+                {
+                    found = FindReflectedWorkItemByReflectedWorkItemId(ReflectedWorkItemId)?.ToWorkItem();
+                }
+
+                if (found != null && cache)
+                {
+                    AddToCache(found.AsWorkItemData()); // TODO MEMORY LEAK
+                }
+
+                return found?.AsWorkItemData();
             }
-            return found?.AsWorkItemData();
+            catch (TeamFoundationServiceUnavailableException e)
+            {
+                if(retries > 0)
+                    return FindReflectedWorkItemWrap(workItemToReflect, cache, retries - 1);
+                throw;
+            }
         }
 
         public override WorkItemData FindReflectedWorkItemByReflectedWorkItemId(WorkItemData workItemToReflect)
@@ -150,30 +170,52 @@ namespace MigrationTools._EngineV1.Clients
 
         public override WorkItemData GetWorkItem(int id)
         {
-            var startTime = DateTime.UtcNow;
-            var timer = System.Diagnostics.Stopwatch.StartNew();
-            WorkItem y;
+            return GetWorkItemWrap(id);
+        }
+
+        private WorkItemData GetWorkItemWrap(int id, int retries = 5)
+        {
             try
             {
-                y = Store.GetWorkItem(id);
-                timer.Stop();
-                Telemetry.TrackDependency(new DependencyTelemetry("TfsObjectModel", MigrationClient.Config.AsTeamProjectConfig().Collection.ToString(), "GetWorkItem", null, startTime, timer.Elapsed, "200", true));
+                var startTime = DateTime.UtcNow;
+                var timer = System.Diagnostics.Stopwatch.StartNew();
+                WorkItem y;
+                try
+                {
+                    y = Store.GetWorkItem(id);
+                    timer.Stop();
+                    Telemetry.TrackDependency(new DependencyTelemetry("TfsObjectModel",
+                        MigrationClient.Config.AsTeamProjectConfig().Collection.ToString(), "GetWorkItem", null, startTime,
+                        timer.Elapsed, "200", true));
+                }
+                catch (Exception ex)
+                {
+                    timer.Stop();
+                    Telemetry.TrackDependency(new DependencyTelemetry("TfsObjectModel",
+                        MigrationClient.Config.AsTeamProjectConfig().Collection.ToString(), "GetWorkItem", null, startTime,
+                        timer.Elapsed, "500", false));
+                    Telemetry.TrackException(ex,
+                        new Dictionary<string, string>
+                        {
+                            {"CollectionUrl", MigrationClient.Config.AsTeamProjectConfig().Collection.ToString()}
+                        },
+                        new Dictionary<string, double>
+                        {
+                            {"Time", timer.ElapsedMilliseconds}
+                        });
+                    Log.Error(ex, "Unable to configure store");
+                    throw;
+                }
+
+                return y?.AsWorkItemData();
             }
-            catch (Exception ex)
+            catch (TeamFoundationServiceUnavailableException e)
             {
-                timer.Stop();
-                Telemetry.TrackDependency(new DependencyTelemetry("TfsObjectModel", MigrationClient.Config.AsTeamProjectConfig().Collection.ToString(), "GetWorkItem", null, startTime, timer.Elapsed, "500", false));
-                Telemetry.TrackException(ex,
-                       new Dictionary<string, string> {
-                            { "CollectionUrl", MigrationClient.Config.AsTeamProjectConfig().Collection.ToString() }
-                       },
-                       new Dictionary<string, double> {
-                            { "Time",timer.ElapsedMilliseconds }
-                       });
-                Log.Error(ex, "Unable to configure store");
+                if (retries > 0)
+                    return GetWorkItemWrap(id, retries - 1);
                 throw;
             }
-            return y?.AsWorkItemData();
+            
         }
 
         public override List<WorkItemData> GetWorkItems()

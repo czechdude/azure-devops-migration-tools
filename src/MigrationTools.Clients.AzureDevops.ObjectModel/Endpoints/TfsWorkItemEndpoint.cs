@@ -44,8 +44,9 @@ namespace MigrationTools.Endpoints
 
         public IEnumerable<WorkItemData> GetWorkItems(QueryOptions query)
         {
-            Log.LogDebug("TfsWorkItemEndPoint::GetWorkItems(query)");
             var wis = TfsStore.Query(query.Query, query.Paramiters);
+            Log.LogDebug("TfsWorkItemEndPoint::GetWorkItems(query)::{WitCount}",wis.Count);
+            
             return ToWorkItemDataList(wis);
         }
 
@@ -73,6 +74,7 @@ namespace MigrationTools.Endpoints
         private void PopulateRevisions(WorkItem wi, WorkItemData wid)
         {
             wid.Revisions = new SortedDictionary<int, RevisionItem>();
+            Log.LogDebug("TfsWorkItemEndPoint::PopulateRevisions::{SourceRevisionsCount}", wi.Revisions.Count);
             foreach (Revision revision in wi.Revisions)
             {
                 RevisionItem revi = new RevisionItem

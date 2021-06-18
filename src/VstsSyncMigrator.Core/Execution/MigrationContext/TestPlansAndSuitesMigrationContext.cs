@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using Microsoft.TeamFoundation;
 using Microsoft.TeamFoundation.Framework.Client;
 using Microsoft.TeamFoundation.Framework.Common;
 using Microsoft.TeamFoundation.TestManagement.Client;
@@ -249,27 +250,48 @@ namespace VstsSyncMigrator.Engine
                     || e.EntryType == TestSuiteEntryType.RequirementTestSuite
                     || e.EntryType == TestSuiteEntryType.StaticTestSuite))
                 {
-                    //Find migrated suite in target
-                    WorkItemData sourceSuiteWi = Engine.Source.WorkItems.GetWorkItem(sourceSuiteChild.Id.ToString());
-                    WorkItemData targetSuiteWi = Engine.Target.WorkItems.FindReflectedWorkItem(sourceSuiteWi, false);
-                    if (targetSuiteWi != null)
+                    //TODO: TRY Catch and Repeat!
+                    ApplyConfigurationsAndAssignTestersWrap(sourceSuite, targetSuite, sourceSuiteChild);
+                }
+            }
+        }
+
+        private void ApplyConfigurationsAndAssignTestersWrap(ITestSuiteBase sourceSuite, ITestSuiteBase targetSuite, ITestSuiteEntry sourceSuiteChild, int retries = 5)
+        {
+            try
+            {
+                //Find migrated suite in target
+                WorkItemData sourceSuiteWi = Engine.Source.WorkItems.GetWorkItem(sourceSuiteChild.Id.ToString());
+                WorkItemData targetSuiteWi = Engine.Target.WorkItems.FindReflectedWorkItem(sourceSuiteWi, false);
+                if (targetSuiteWi != null)
+                {
+                    ITestSuiteEntry targetSuiteChild = (from tc in ((IStaticTestSuite) targetSuite).Entries
+                        where tc.Id.ToString() == targetSuiteWi.Id
+                        select tc).FirstOrDefault();
+                    if (targetSuiteChild != null)
                     {
-                        ITestSuiteEntry targetSuiteChild = (from tc in ((IStaticTestSuite)targetSuite).Entries
-                                                            where tc.Id.ToString() == targetSuiteWi.Id
-                                                            select tc).FirstOrDefault();
-                        if (targetSuiteChild != null)
-                        {
-                            ApplyConfigurationsAndAssignTesters(sourceSuiteChild.TestSuite, targetSuiteChild.TestSuite);
-                        }
-                        else
-                        {
-                            InnerLog(sourceSuite, $"Test Suite {sourceSuiteChild.Title} from source cannot be found in target. Has it been migrated?", 5);
-                        }
+                        ApplyConfigurationsAndAssignTesters(sourceSuiteChild.TestSuite, targetSuiteChild.TestSuite);
                     }
                     else
                     {
-                        InnerLog(sourceSuite, $"Test Suite {sourceSuiteChild.Title} from source cannot be found in target. Has it been migrated?", 5);
+                        InnerLog(sourceSuite,
+                            $"Test Suite {sourceSuiteChild.Title} from source cannot be found in target. Has it been migrated?",
+                            5);
                     }
+                }
+                else
+                {
+                    InnerLog(sourceSuite,
+                        $"Test Suite {sourceSuiteChild.Title} from source cannot be found in target. Has it been migrated?", 5);
+                }
+            }
+            catch (TeamFoundationServiceUnavailableException e)
+            {
+                if(retries > 0)
+                    ApplyConfigurationsAndAssignTestersWrap(sourceSuite,targetSuite,sourceSuiteChild,retries-1);
+                else
+                {
+                    throw;
                 }
             }
         }
@@ -978,26 +1000,48 @@ namespace VstsSyncMigrator.Engine
                 $"       Saving {newTestSuite.TestSuiteType} : {newTestSuite.Id} - {newTestSuite.Title} ", 10);
             try
             {
-                ((IStaticTestSuite)parent).Entries.Add(newTestSuite);
+                ((IStaticTestSuite) parent).Entries.Add(newTestSuite);
             }
             catch (TestManagementServerException ex)
             {
-                Log.LogError(ex, " FAILED {TestSuiteType} : {Id} - {Title}", newTestSuite.TestSuiteType.ToString(), newTestSuite.Id.ToString(), newTestSuite.Title,
-                      new Dictionary<string, string> {
-                          { "Name", Name},
-                          { "Target Project", Engine.Target.Config.AsTeamProjectConfig().Project},
-                          { "Target Collection", Engine.Target.Config.AsTeamProjectConfig().Collection.ToString() },
-                          { "Source Project", Engine.Source.Config.AsTeamProjectConfig().Project},
-                          { "Source Collection", Engine.Source.Config.AsTeamProjectConfig().Collection.ToString() },
-                          { "Status", Status.ToString() },
-                          { "Task", "SaveNewTestSuitToPlan" },
-                          { "Id", newTestSuite.Id.ToString()},
-                          { "Title", newTestSuite.Title},
-                          { "TestSuiteType", newTestSuite.TestSuiteType.ToString()}
-                      });
+                Log.LogError(ex, " FAILED {TestSuiteType} : {Id} - {Title}", newTestSuite.TestSuiteType.ToString(),
+                    newTestSuite.Id.ToString(), newTestSuite.Title,
+                    new Dictionary<string, string>
+                    {
+                        {"Name", Name},
+                        {"Target Project", Engine.Target.Config.AsTeamProjectConfig().Project},
+                        {"Target Collection", Engine.Target.Config.AsTeamProjectConfig().Collection.ToString()},
+                        {"Source Project", Engine.Source.Config.AsTeamProjectConfig().Project},
+                        {"Source Collection", Engine.Source.Config.AsTeamProjectConfig().Collection.ToString()},
+                        {"Status", Status.ToString()},
+                        {"Task", "SaveNewTestSuitToPlan"},
+                        {"Id", newTestSuite.Id.ToString()},
+                        {"Title", newTestSuite.Title},
+                        {"TestSuiteType", newTestSuite.TestSuiteType.ToString()}
+                    });
                 ITestSuiteBase ErrorSuiteChild = _targetTestStore.Project.TestSuites.CreateStatic();
-                ErrorSuiteChild.TestSuiteEntry.Title = string.Format(@"BROKEN: {0} | {1}", newTestSuite.Title, ex.Message);
-                ((IStaticTestSuite)parent).Entries.Add(ErrorSuiteChild);
+                ErrorSuiteChild.TestSuiteEntry.Title =
+                    string.Format(@"BROKEN: {0} | {1}", newTestSuite.Title, ex.Message);
+                ((IStaticTestSuite) parent).Entries.Add(ErrorSuiteChild);
+            }
+            catch (Exception ex)
+            {
+                Log.LogError(ex, " FAILED {TestSuiteType} : {Id} - {Title}", newTestSuite.TestSuiteType.ToString(),
+                    newTestSuite.Id.ToString(), newTestSuite.Title,
+                    new Dictionary<string, string>
+                    {
+                        {"Name", Name},
+                        {"Target Project", Engine.Target.Config.AsTeamProjectConfig().Project},
+                        {"Target Collection", Engine.Target.Config.AsTeamProjectConfig().Collection.ToString()},
+                        {"Source Project", Engine.Source.Config.AsTeamProjectConfig().Project},
+                        {"Source Collection", Engine.Source.Config.AsTeamProjectConfig().Collection.ToString()},
+                        {"Status", Status.ToString()},
+                        {"Task", "SaveNewTestSuitToPlan"},
+                        {"Id", newTestSuite.Id.ToString()},
+                        {"Title", newTestSuite.Title},
+                        {"TestSuiteType", newTestSuite.TestSuiteType.ToString()}
+                    });
+                throw;
             }
 
             testPlan.Save();

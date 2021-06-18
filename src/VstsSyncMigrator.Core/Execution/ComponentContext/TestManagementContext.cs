@@ -3,6 +3,7 @@ using System.Linq;
 using Microsoft.TeamFoundation.TestManagement.Client;
 using MigrationTools;
 using MigrationTools._EngineV1.Clients;
+using Serilog;
 
 namespace VstsSyncMigrator.Engine.ComponentContext
 {
@@ -31,6 +32,7 @@ namespace VstsSyncMigrator.Engine.ComponentContext
             var query = (string.IsNullOrWhiteSpace(testPlanQueryBit))
                 ? "Select * From TestPlan"
                 : $"Select * From TestPlan Where {testPlanQueryBit}";
+            Log.Debug($"TestPlan Query: {query}");
 
             return Project.TestPlans.Query(query);
         }
