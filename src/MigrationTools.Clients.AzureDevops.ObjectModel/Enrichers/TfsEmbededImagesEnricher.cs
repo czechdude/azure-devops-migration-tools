@@ -236,7 +236,7 @@ namespace MigrationTools.Enrichers
 
                     var reflectedWorkItemId =
                         Engine.Target.WorkItems.GetReflectedWorkItemId(workItem) as TfsReflectedWorkItemId;
-                    if (reflectedWorkItemId?.WorkItemId != null)
+                    if (reflectedWorkItemId?.WorkItemId != null && !linkList.ContainsKey(reflectedWorkItemId.WorkItemId))
                         linkList.Add(reflectedWorkItemId.WorkItemId, workItem);
                 }
                 else
