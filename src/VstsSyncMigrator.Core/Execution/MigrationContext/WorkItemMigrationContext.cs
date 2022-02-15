@@ -100,8 +100,11 @@ namespace VstsSyncMigrator.Engine
                 return;
             }
 
-            Log.LogInformation("Migrating all Nodes before the work item run.");
-            nodeStructureEnricher.MigrateAllNodeStructures(_config.PrefixProjectToNodes, _config.NodeBasePaths);
+            if (!_config.SkipAreaIterationMigration)
+            {
+                Log.LogInformation("Migrating all Nodes before the work item run.");
+                nodeStructureEnricher.MigrateAllNodeStructures(_config.PrefixProjectToNodes, _config.NodeBasePaths);
+            }
 
             var stopwatch = Stopwatch.StartNew();
             //////////////////////////////////////////////////
