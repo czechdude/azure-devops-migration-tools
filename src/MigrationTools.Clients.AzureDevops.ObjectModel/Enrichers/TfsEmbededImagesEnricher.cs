@@ -267,7 +267,7 @@ namespace MigrationTools.Enrichers
 
                     if (linkList.ContainsKey(match.Value))
                     {
-                        text = Regex.Replace(text, $"(?<=href=\"){oldTfsurl}.*?/_workitems/edit/{match.Value}/?(?=\")",
+                        text = Regex.Replace(text, $"(?<=href=\"){oldTfsurl}[^\"]*?/_workitems/edit/{match.Value}/?(?=\")",
                             new TfsReflectedWorkItemId(linkList[match.Value]).ToString(), RegexOptions.IgnoreCase);
 
                         text = Regex.Replace(text, "(?<=#)" + match.Value, linkList[match.Value].Id);
@@ -285,7 +285,7 @@ namespace MigrationTools.Enrichers
             //<a href="x-mvwit:workitem/10828">Bug 10828</a>
 
             var oldProject = Engine.Config.Source.AsTeamProjectConfig().Project;
-            string regExSearchForIssueLinkUncert = $"(?<=href=\"{oldTfsurl}.*?/_workitems/edit/|x-mvwit:workitem/)";
+            string regExSearchForIssueLinkUncert = $"(?<=href=\"{oldTfsurl}[^\"]*?/_workitems/edit/|x-mvwit:workitem/)";
             string regExSearchForIssueLink = regExSearchForIssueLinkUncert + $"[0-9]*";
             matches = Regex.Matches(text, regExSearchForIssueLink);
 
@@ -298,7 +298,7 @@ namespace MigrationTools.Enrichers
 
                     if (linkList.ContainsKey(match.Value))
                     {
-                        text = Regex.Replace(text, $"(?<=href=\")({oldTfsurl}.*?/_workitems/edit|x-mvwit:workitem)/{match.Value}/?(?=\")",
+                        text = Regex.Replace(text, $"(?<=href=\")({oldTfsurl}[^\"]*?/_workitems/edit|x-mvwit:workitem)/{match.Value}/?(?=\")",
                             new TfsReflectedWorkItemId(linkList[match.Value]).ToString());
 
                         text = Regex.Replace(text, "(?<=<a.*?)" + match.Value + "(?=.*?</a>)", linkList[match.Value].Id);
