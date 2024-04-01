@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -49,7 +50,9 @@ namespace MigrationTools.Enrichers
         protected override void FixEmbededImages(WorkItemData wi, string oldTfsurl, string newTfsurl,
             WorkItemTrackingHttpClient witClient, string project, string sourcePersonalAccessToken = "")
         {
-            Log.LogInformation("EmbededImagesRepairEnricher: Fixing HTML field attachments for work item {Id} from {OldTfsurl} to {NewTfsUrl}", wi.Id, oldTfsurl, GetUrlWithOppositeSchema(oldTfsurl));
+            Log.LogInformation(
+                "EmbededImagesRepairEnricher: Fixing HTML field attachments for work item {Id} from {OldTfsurl} to {NewTfsUrl}",
+                wi.Id, oldTfsurl, GetUrlWithOppositeSchema(oldTfsurl));
 
             var oldTfsurlOppositeSchema = GetUrlWithOppositeSchema(oldTfsurl);
             string regExSearchForImageUrl = "(?<=<img.*src=\")[^\"]*";
@@ -65,27 +68,37 @@ namespace MigrationTools.Enrichers
                     string regExSearchFileName = "(?<=FileName=)[^=]*";
                     foreach (Match match in matches)
                     {
-                        if (match.Value.ToLower().Contains(oldTfsurl.ToLower()) || match.Value.ToLower().Contains(oldTfsurlOppositeSchema.ToLower()))
+                        if (match.Value.ToLower().Contains(oldTfsurl.ToLower()) ||
+                            match.Value.ToLower().Contains(oldTfsurlOppositeSchema.ToLower()))
                         {
                             //save image locally and upload as attachment
-                            Match newFileNameMatch = Regex.Match(match.Value, regExSearchFileName, RegexOptions.IgnoreCase);
+                            Match newFileNameMatch =
+                                Regex.Match(match.Value, regExSearchFileName, RegexOptions.IgnoreCase);
                             if (newFileNameMatch.Success)
                             {
-                                Log.LogDebug("EmbededImagesRepairEnricher: field '{fieldName}' has match: {matchValue}", field.Name, System.Net.WebUtility.HtmlDecode(match.Value));
+                                Log.LogDebug("EmbededImagesRepairEnricher: field '{fieldName}' has match: {matchValue}",
+                                    field.Name, System.Net.WebUtility.HtmlDecode(match.Value));
                                 string fullImageFilePath = Path.GetTempPath() + newFileNameMatch.Value;
 
                                 using (var httpClient = new HttpClient(_httpClientHandler, false))
                                 {
                                     if (!string.IsNullOrEmpty(sourcePersonalAccessToken))
                                     {
-                                        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(System.Text.ASCIIEncoding.ASCII.GetBytes(string.Format("{0}:{1}", "", sourcePersonalAccessToken))));
+                                        httpClient.DefaultRequestHeaders.Authorization =
+                                            new AuthenticationHeaderValue("Basic",
+                                                Convert.ToBase64String(
+                                                    System.Text.ASCIIEncoding.ASCII.GetBytes(string.Format("{0}:{1}",
+                                                        "", sourcePersonalAccessToken))));
                                     }
+
                                     var result = DownloadFile(httpClient, match.Value, fullImageFilePath);
                                     if (!result.IsSuccessStatusCode)
                                     {
                                         if (_ignore404Errors && result.StatusCode == HttpStatusCode.NotFound)
                                         {
-                                            Log.LogDebug("EmbededImagesRepairEnricher: Image {MatchValue} could not be found in WorkItem {WorkItemId}, Field {FieldName}", match.Value, wi.Id, field.Name);
+                                            Log.LogDebug(
+                                                "EmbededImagesRepairEnricher: Image {MatchValue} could not be found in WorkItem {WorkItemId}, Field {FieldName}",
+                                                match.Value, wi.Id, field.Name);
                                             continue;
                                         }
                                         else
@@ -97,10 +110,12 @@ namespace MigrationTools.Enrichers
 
                                 if (GetImageFormat(File.ReadAllBytes(fullImageFilePath)) == ImageFormat.unknown)
                                 {
-                                    throw new Exception($"Downloaded image [{fullImageFilePath}] from Work Item [{wi.ToWorkItem().Id}] Field: [{field.Name}] could not be identified as an image. Authentication issue?");
+                                    throw new Exception(
+                                        $"Downloaded image [{fullImageFilePath}] from Work Item [{wi.ToWorkItem().Id}] Field: [{field.Name}] could not be identified as an image. Authentication issue?");
                                 }
 
-                                int attachmentIndex = wi.ToWorkItem().Attachments.Add(new Attachment(fullImageFilePath));
+                                int attachmentIndex =
+                                    wi.ToWorkItem().Attachments.Add(new Attachment(fullImageFilePath));
                                 wi.SaveToAzureDevOps();
 
                                 var newImageLink = wi.ToWorkItem().Attachments[attachmentIndex].Uri.ToString();
@@ -135,71 +150,92 @@ namespace MigrationTools.Enrichers
 
             foreach (Comment comment in comments.Comments)
             {
-                MatchCollection matches = Regex.Matches((string)comment.Text, regExSearchForImageUrl);
-                var commentUpdate = new CommentUpdate();
-                commentUpdate.Text = comment.Text;
-                string regExSearchFileName = "(?<=FileName=)[^=]*";
-                foreach (Match match in matches)
+                try
                 {
-                    if (match.Value.ToLower().Contains(oldTfsurl.ToLower()) || match.Value.ToLower().Contains(oldTfsurlOppositeSchema.ToLower()))
+                    MatchCollection matches = Regex.Matches((string)comment.Text, regExSearchForImageUrl);
+                    var commentUpdate = new CommentUpdate();
+                    commentUpdate.Text = comment.Text;
+                    string regExSearchFileName = "(?<=FileName=)[^=]*";
+                    foreach (Match match in matches)
                     {
-                        //save image locally and upload as attachment
-                        Match newFileNameMatch = Regex.Match(match.Value, regExSearchFileName, RegexOptions.IgnoreCase);
-                        if (newFileNameMatch.Success)
+                        if (match.Value.ToLower().Contains(oldTfsurl.ToLower()) ||
+                            match.Value.ToLower().Contains(oldTfsurlOppositeSchema.ToLower()))
                         {
-                            Log.LogDebug("EmbededImagesRepairEnricher: History has match: {matchValue}", System.Net.WebUtility.HtmlDecode(match.Value));
-                            string fullImageFilePath = Path.GetTempPath() + Guid.NewGuid().ToString("N") + Path.GetExtension(newFileNameMatch.Value);//newFileNameMatch.Value;
-
-                            using (var httpClient = new HttpClient(_httpClientHandler, false))
+                            //save image locally and upload as attachment
+                            Match newFileNameMatch = Regex.Match(match.Value, regExSearchFileName, RegexOptions.IgnoreCase);
+                            if (newFileNameMatch.Success)
                             {
-                                if (!string.IsNullOrEmpty(sourcePersonalAccessToken))
+                                Log.LogDebug("EmbededImagesRepairEnricher: History has match: {matchValue}",
+                                    System.Net.WebUtility.HtmlDecode(match.Value));
+                                string fullImageFilePath = Path.GetTempPath() + Guid.NewGuid().ToString("N") +
+                                                           Path.GetExtension(newFileNameMatch
+                                                               .Value); //newFileNameMatch.Value;
+
+                                using (var httpClient = new HttpClient(_httpClientHandler, false))
                                 {
-                                    httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(System.Text.ASCIIEncoding.ASCII.GetBytes(string.Format("{0}:{1}", "", sourcePersonalAccessToken))));
+                                    if (!string.IsNullOrEmpty(sourcePersonalAccessToken))
+                                    {
+                                        httpClient.DefaultRequestHeaders.Authorization =
+                                            new AuthenticationHeaderValue("Basic",
+                                                Convert.ToBase64String(
+                                                    System.Text.ASCIIEncoding.ASCII.GetBytes(string.Format("{0}:{1}", "",
+                                                        sourcePersonalAccessToken))));
+                                    }
+
+                                    var result = DownloadFile(httpClient, match.Value, fullImageFilePath);
+                                    if (!result.IsSuccessStatusCode)
+                                    {
+                                        if (_ignore404Errors && result.StatusCode == HttpStatusCode.NotFound)
+                                        {
+                                            Log.LogDebug(
+                                                "EmbededImagesRepairEnricher: Image {MatchValue} could not be found in WorkItem {WorkItemId}, Field History",
+                                                match.Value, wi.Id);
+                                            continue;
+                                        }
+                                        else
+                                        {
+                                            result.EnsureSuccessStatusCode();
+                                        }
+                                    }
                                 }
-                                var result = DownloadFile(httpClient, match.Value, fullImageFilePath);
-                                if (!result.IsSuccessStatusCode)
+
+                                if (GetImageFormat(File.ReadAllBytes(fullImageFilePath)) == ImageFormat.unknown)
                                 {
-                                    if (_ignore404Errors && result.StatusCode == HttpStatusCode.NotFound)
-                                    {
-                                        Log.LogDebug("EmbededImagesRepairEnricher: Image {MatchValue} could not be found in WorkItem {WorkItemId}, Field History", match.Value, wi.Id);
-                                        continue;
-                                    }
-                                    else
-                                    {
-                                        result.EnsureSuccessStatusCode();
-                                    }
+                                    throw new Exception(
+                                        $"Downloaded image [{fullImageFilePath}] from Work Item [{wi.ToWorkItem().Id}] Field: History could not be identified as an image. Authentication issue?");
                                 }
+
+                                var attachment = new Attachment(fullImageFilePath);
+                                int attachmentIndex = wi.ToWorkItem().Attachments.Add(attachment);
+                                attIndices.Add(new Tuple<Attachment, string, string>(attachment, match.Value,
+                                    fullImageFilePath));
+
                             }
-
-                            if (GetImageFormat(File.ReadAllBytes(fullImageFilePath)) == ImageFormat.unknown)
-                            {
-                                throw new Exception($"Downloaded image [{fullImageFilePath}] from Work Item [{wi.ToWorkItem().Id}] Field: History could not be identified as an image. Authentication issue?");
-                            }
-
-                            var attachment = new Attachment(fullImageFilePath);
-                            int attachmentIndex = wi.ToWorkItem().Attachments.Add(attachment);
-                            attIndices.Add(new Tuple<Attachment, string, string>(attachment, match.Value, fullImageFilePath));
-
                         }
                     }
-                }
 
-                if (matches.Count > 0)
-                {
-                    wi.SaveToAzureDevOps();
-                    // TODO: 2D Array for attindices, this cycles all the attachments for the comments, not just for the comment, but it is minor
-                    foreach (var attIndex in attIndices)
+                    if (matches.Count > 0)
                     {
-                        var newImageLink = attIndex.Item1.Uri.ToString();
+                        wi.SaveToAzureDevOps();
+                        // TODO: 2D Array for attindices, this cycles all the attachments for the comments, not just for the comment, but it is minor
+                        foreach (var attIndex in attIndices)
+                        {
+                            var newImageLink = attIndex.Item1.Uri.ToString();
 
-                        commentUpdate.Text = commentUpdate.Text.Replace(attIndex.Item2, newImageLink);
+                            commentUpdate.Text = commentUpdate.Text.Replace(attIndex.Item2, newImageLink);
+                        }
                     }
+
+                    commentUpdate.Text = ReplaceLinksInText(wi, oldTfsurl, linkList, commentUpdate.Text);
+
+                    if (!string.Equals(commentUpdate.Text, comment.Text))
+                        witClient.UpdateCommentAsync(commentUpdate, project, int.Parse(wi.Id), comment.Id).Wait();
                 }
-
-                commentUpdate.Text = ReplaceLinksInText(wi, oldTfsurl, linkList, commentUpdate.Text);
-
-                if (!string.Equals(commentUpdate.Text, comment.Text))
-                    witClient.UpdateCommentAsync(commentUpdate, project, int.Parse(wi.Id), comment.Id).Wait();
+                catch (Exception e)
+                {
+                    Log.LogCritical(e, "EmbededImagesRepairEnricher: Image in comment {Comment} could not be saved in WorkItem {WorkItemId}. {Error}",
+                        comment.Text, wi.Id, e.Message);
+                }
             }
             if (attIndices.Any())
             {
